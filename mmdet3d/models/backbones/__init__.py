@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from mmdet.models.backbones import SSDVGG, HRNet, ResNet, ResNetV1d, ResNeXt
+from .resnet_rgbd import ResNetRGBD
 from .dgcnn import DGCNNBackbone
 from .dla import DLANet
 from .mink_resnet import MinkResNet
@@ -12,7 +13,7 @@ from .second import SECOND
 from .swin import SwinTransformer
 
 __all__ = [
-    'ResNet', 'ResNetV1d', 'ResNeXt', 'SSDVGG', 'HRNet', 'NoStemRegNet',
+    'ResNet', 'ResNetV1d', 'ResNeXt', 'ResNetRGBD', 'SSDVGG', 'HRNet', 'NoStemRegNet',
     'SECOND', 'DGCNNBackbone', 'PointNet2SASSG', 'PointNet2SAMSG',
     'MultiBackbone', 'DLANet', 'MinkResNet', 'CustomResNet', 'CustomResNet3D',
     'SwinTransformer'

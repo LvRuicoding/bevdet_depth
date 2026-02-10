@@ -1,32 +1,14 @@
 # Copyright (c) Phigent Robotics. All rights reserved.
+# BEVDet with Depth Modulation Network
+# 使用预提取的深度图，通过深度调制网络进行精化
 
-# mAP: 0.2828
-# mATE: 0.7734
-# mASE: 0.2884
-# mAOE: 0.6976
-# mAVE: 0.8637
-# mAAE: 0.2908
-# NDS: 0.3500
-#
-# Per-class results:
-# Object Class	AP	ATE	ASE	AOE	AVE	AAE
-# car	0.517	0.533	0.161	0.123	0.909	0.235
-# truck	0.226	0.745	0.232	0.222	0.848	0.268
-# bus	0.305	0.797	0.220	0.192	1.982	0.355
-# trailer	0.101	1.107	0.230	0.514	0.536	0.068
-# construction_vehicle	0.039	1.105	0.501	1.402	0.119	0.386
-# pedestrian	0.318	0.805	0.305	1.341	0.826	0.650
-# motorcycle	0.216	0.783	0.286	0.977	1.224	0.273
-# bicycle	0.203	0.712	0.304	1.354	0.465	0.090
-# traffic_cone	0.499	0.547	0.347	nan	nan	nan
-# barrier	0.404	0.599	0.297	0.153	nan	nan
+_base_ = ['./bevdet-r50.py']
 
-_base_ = ['../_base_/datasets/nus-3d.py', '../_base_/default_runtime.py']
-# Global
-# If point cloud range is changed, the models should also change their point
-# cloud range accordingly
+# 深度图根目录
+depth_root = 'data/nuscenes-depth/samples'
+
+# 全局配置
 point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-# For nuScenes we usually do 10-class detection
 class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
     'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
@@ -37,12 +19,10 @@ data_config = {
         'CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_LEFT',
         'CAM_BACK', 'CAM_BACK_RIGHT'
     ],
-    'Ncams':
-    6,
+    'Ncams': 6,
     'input_size': (256, 704),
     'src_size': (900, 1600),
-
-    # Augmentation
+    # 数据增强
     'resize': (-0.06, 0.11),
     'rot': (-5.4, 5.4),
     'flip': True,
@@ -50,7 +30,7 @@ data_config = {
     'resize_test': 0.00,
 }
 
-# Model
+# 模型配置
 grid_config = {
     'x': [-51.2, 51.2, 0.8],
     'y': [-51.2, 51.2, 0.8],
@@ -59,11 +39,11 @@ grid_config = {
 }
 
 voxel_size = [0.1, 0.1, 0.2]
-
 numC_Trans = 64
 
 model = dict(
-    type='BEVDet',
+    type='BEVDetDepthModulation',
+    use_depth_loss=False,  # 关闭深度监督损失（如需启用，需要在pipeline中加载点云）
     img_backbone=dict(
         pretrained='torchvision://resnet50',
         type='ResNet',
@@ -83,12 +63,20 @@ model = dict(
         start_level=0,
         out_ids=[0]),
     img_view_transformer=dict(
-        type='LSSViewTransformer',
+        type='LSSViewTransformerDepthModulation',
         grid_config=grid_config,
         input_size=data_config['input_size'],
         in_channels=256,
         out_channels=numC_Trans,
-        downsample=16),
+        downsample=16,
+        depth_modulation=dict(
+            in_channels=256,
+            mid_channels=128,
+            delta_activation='sigmoid_scale',  # 或 'tanh_shift'
+        ),
+        use_depth_loss=False,  # 关闭深度监督损失
+        depth_loss_weight=1.0,
+    ),
     img_bev_encoder_backbone=dict(
         type='CustomResNet',
         numC_input=numC_Trans,
@@ -101,12 +89,7 @@ model = dict(
         type='CenterHead',
         in_channels=256,
         tasks=[
-            dict(num_class=10, class_names=['car', 'truck',
-                                            'construction_vehicle',
-                                            'bus', 'trailer',
-                                            'barrier',
-                                            'motorcycle', 'bicycle',
-                                            'pedestrian', 'traffic_cone']),
+            dict(num_class=10, class_names=class_names),
         ],
         common_heads=dict(
             reg=(2, 2), height=(1, 2), dim=(3, 2), rot=(2, 2), vel=(2, 2)),
@@ -125,7 +108,7 @@ model = dict(
         loss_cls=dict(type='GaussianFocalLoss', reduction='mean'),
         loss_bbox=dict(type='L1Loss', reduction='mean', loss_weight=0.25),
         norm_bbox=True),
-    # model training and testing settings
+    # 模型训练和测试设置
     train_cfg=dict(
         pts=dict(
             point_cloud_range=point_cloud_range,
@@ -149,7 +132,6 @@ model = dict(
             voxel_size=voxel_size[:2],
             pre_max_size=1000,
             post_max_size=500,
-
             # Scale-NMS
             nms_type=['rotate'],
             nms_thr=[0.2],
@@ -159,7 +141,7 @@ model = dict(
     )
 )
 
-# Data
+# 数据集配置
 dataset_type = 'NuScenesDataset'
 data_root = 'data/nuscenes/'
 file_client_args = dict(backend='disk')
@@ -170,12 +152,17 @@ bda_aug_conf = dict(
     flip_dx_ratio=0.5,
     flip_dy_ratio=0.5)
 
+# 训练数据pipeline
 train_pipeline = [
     dict(
         type='PrepareImageInputs',
         is_train=True,
         data_config=data_config),
     dict(type='LoadAnnotations'),
+    dict(
+        type='LoadPretrainedDepth',
+        depth_root=depth_root,
+        downsample=16),  # 下采样到特征分辨率
     dict(
         type='BEVAug',
         bda_aug_conf=bda_aug_conf,
@@ -184,12 +171,18 @@ train_pipeline = [
     dict(type='ObjectNameFilter', classes=class_names),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
-        type='Collect3D', keys=['img_inputs', 'gt_bboxes_3d', 'gt_labels_3d'])
+        type='Collect3D',
+        keys=['img_inputs', 'pretrained_depths', 'gt_bboxes_3d', 'gt_labels_3d'])
 ]
 
+# 测试数据pipeline
 test_pipeline = [
     dict(type='PrepareImageInputs', data_config=data_config),
     dict(type='LoadAnnotations'),
+    dict(
+        type='LoadPretrainedDepth',
+        depth_root=depth_root,
+        downsample=16),
     dict(type='BEVAug',
          bda_aug_conf=bda_aug_conf,
          classes=class_names,
@@ -210,7 +203,7 @@ test_pipeline = [
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='Collect3D', keys=['points', 'img_inputs'])
+            dict(type='Collect3D', keys=['points', 'img_inputs', 'pretrained_depths'])
         ])
 ]
 
@@ -242,8 +235,6 @@ data = dict(
         classes=class_names,
         test_mode=False,
         use_valid_flag=True,
-        # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
-        # and box_type_3d='Depth' in sunrgbd and scannet dataset.
         box_type_3d='LiDAR'),
     val=test_data_config,
     test=test_data_config)
@@ -251,7 +242,7 @@ data = dict(
 for key in ['train', 'val', 'test']:
     data[key].update(share_data_config)
 
-# Optimizer
+# 优化器配置（与bevdet-r50完全一致）
 optimizer = dict(type='AdamW', lr=1e-4, weight_decay=1e-07)
 optimizer_config = dict(grad_clip=dict(max_norm=5, norm_type=2))
 lr_config = dict(
@@ -270,4 +261,5 @@ custom_hooks = [
     ),
 ]
 
+# 可选：启用混合精度训练
 # fp16 = dict(loss_scale='dynamic')
