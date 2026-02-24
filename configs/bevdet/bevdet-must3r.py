@@ -53,6 +53,7 @@ model = dict(
         pretrained='/home/batchcom/lr/must3r/ckpts/MUSt3R_224_cvpr.pth',
         with_cp=True,
         frozen=True,
+        adapter_channels=256,
     ),
     # ---- Adjusted: single-scale input from ViT ----
     img_neck=dict(
@@ -212,7 +213,7 @@ test_data_config = dict(
 
 data = dict(
     samples_per_gpu=8,
-    workers_per_gpu=4,
+    workers_per_gpu=16,
     train=dict(
         data_root=data_root,
         ann_file=data_root + 'bevdetv3-nuscenes_infos_train.pkl',

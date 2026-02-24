@@ -1,4 +1,5 @@
 import sys
+import os
 import os.path as osp
 import torch
 import torch.nn as nn
@@ -36,7 +37,9 @@ class Must3rBackbone(BaseModule):
                  mlp_ratio=4,
                  pretrained=None,
                  with_cp=False,
-                 frozen=True):
+                 frozen=True,
+                 frozen_stages=-1,
+                 adapter_channels=None):
         super().__init__()
         self.encoder = Dust3rEncoder(
             img_size=img_size,
@@ -50,57 +53,116 @@ class Must3rBackbone(BaseModule):
         self.embed_dim = embed_dim
         self._img_size = img_size
         self.with_cp = with_cp
+        self.frozen = frozen
+        self.frozen_stages = frozen_stages
+
+        # Adapter: lightweight conv layers to bridge ViT → CNN feature distribution
+        # Always trainable, even when encoder is frozen.
+        if adapter_channels is not None:
+            self.adapter = nn.Sequential(
+                nn.Conv2d(embed_dim, adapter_channels, 1, bias=False),
+                nn.BatchNorm2d(adapter_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(adapter_channels, embed_dim, 1, bias=False),
+                nn.BatchNorm2d(embed_dim),
+            )
+            self.out_channels = embed_dim
+        else:
+            self.adapter = None
 
         if pretrained is not None:
             self._load_pretrained(pretrained)
-        if frozen:
+        else:
+            raise ValueError(
+                'Must3rBackbone requires a pretrained checkpoint. '
+                'Set pretrained=/path/to/MUSt3R_checkpoint.pth')
+        self._freeze()
+
+    def _freeze(self):
+        """Freeze parameters based on frozen / frozen_stages settings.
+
+        frozen=True:  freeze everything (patch_embed + all blocks + norm).
+        frozen=False, frozen_stages=N (0-indexed):
+            freeze patch_embed + blocks_enc[0..N].
+            N=-1 means freeze nothing.
+        """
+        if self.frozen:
             self.encoder.eval()
             for param in self.encoder.parameters():
+                param.requires_grad = False
+            return
+
+        if self.frozen_stages < 0:
+            return
+
+        # Always freeze patch_embed when frozen_stages >= 0
+        self.encoder.patch_embed.eval()
+        for param in self.encoder.patch_embed.parameters():
+            param.requires_grad = False
+
+        # Freeze blocks_enc[0..frozen_stages]
+        for i in range(self.frozen_stages + 1):
+            blk = self.encoder.blocks_enc[i]
+            blk.eval()
+            for param in blk.parameters():
                 param.requires_grad = False
 
     def train(self, mode=True):
         super().train(mode)
-        # Keep encoder in eval mode when frozen
-        if not any(p.requires_grad for p in self.encoder.parameters()):
+        if self.frozen:
             self.encoder.eval()
+            return self
+        # Keep frozen stages in eval mode
+        if self.frozen_stages >= 0:
+            self.encoder.patch_embed.eval()
+            for i in range(self.frozen_stages + 1):
+                self.encoder.blocks_enc[i].eval()
         return self
 
     def _load_pretrained(self, checkpoint_path):
         """Load pretrained weights from a MUSt3R / DUSt3R / CroCo checkpoint."""
+        if not os.path.isfile(checkpoint_path):
+            raise FileNotFoundError(
+                f'Pretrained checkpoint not found: {checkpoint_path}')
+
         ckpt = torch.load(checkpoint_path, map_location='cpu')
-        # Handle different checkpoint formats
-        if 'model' in ckpt:
+
+        # MUSt3R format: encoder/decoder stored as separate keys
+        if 'encoder' in ckpt and isinstance(ckpt['encoder'], dict):
+            state_dict = ckpt['encoder']
+        # DUSt3R format: full model under 'model' key (need to filter)
+        elif 'model' in ckpt:
             state_dict = ckpt['model']
         elif 'state_dict' in ckpt:
             state_dict = ckpt['state_dict']
         else:
-            state_dict = ckpt
+            raise KeyError(
+                f'Unrecognised checkpoint format. '
+                f'Available top-level keys: {list(ckpt.keys())}. '
+                f'Expected "encoder", "model", or "state_dict".')
 
-        # Filter encoder-only keys and strip common prefixes
+        # Rename DUSt3R/CroCo key conventions → MUSt3R conventions
         enc_state = {}
         for k, v in state_dict.items():
-            for prefix in ['module.', 'encoder.', 'backbone.']:
-                if k.startswith(prefix):
-                    k = k[len(prefix):]
-            # Keep only keys that belong to the encoder
-            if k.startswith('patch_embed') or k.startswith('blocks_enc') \
-                    or k.startswith('norm_enc') or k.startswith('rope'):
-                enc_state[k] = v
-            # DUSt3R format uses enc_blocks / enc_norm
-            elif k.startswith('enc_blocks') or k.startswith('enc_norm'):
-                k = k.replace('enc_blocks', 'blocks_enc').replace(
-                    'enc_norm', 'norm_enc')
-                enc_state[k] = v
+            k = k.replace('enc_blocks', 'blocks_enc').replace(
+                'enc_norm', 'norm_enc')
+            enc_state[k] = v
 
-        if enc_state:
-            info = self.encoder.load_state_dict(enc_state, strict=False)
-            print(f'[Must3rBackbone] Loaded pretrained encoder: {info}')
-        else:
-            print('[Must3rBackbone] Warning: no matching encoder keys found '
-                  'in checkpoint, trying to load full state_dict')
-            info = self.encoder.load_state_dict(state_dict, strict=False)
-            print(f'[Must3rBackbone] load result: {info}')
+        info = self.encoder.load_state_dict(enc_state, strict=False)
 
+        # Fail loudly if any encoder parameter was NOT loaded
+        if info.missing_keys:
+            raise RuntimeError(
+                f'Missing keys when loading pretrained encoder '
+                f'(these parameters would be randomly initialised): '
+                f'{info.missing_keys}')
+
+        if info.unexpected_keys:
+            print(f'[Must3rBackbone] Unexpected keys in checkpoint (ignored): '
+                  f'{info.unexpected_keys}')
+        print('[Must3rBackbone] All encoder weights loaded successfully.')
+
+    @torch.autocast("cuda", enabled=False)
     def forward(self, x):
         """
         Args:
@@ -112,7 +174,7 @@ class Must3rBackbone(BaseModule):
         true_shape = torch.tensor(
             [[H, W]], dtype=torch.long, device=x.device).expand(B, -1)
 
-        # Patch embedding (lightweight, no need to checkpoint)
+        # Patch embedding
         tokens, pos = self.encoder.patch_embed(x, true_shape=true_shape)
 
         # Transformer blocks with optional gradient checkpointing
@@ -127,4 +189,8 @@ class Must3rBackbone(BaseModule):
         w = W // self.patch_size
         feat = tokens.transpose(1, 2).reshape(B, self.embed_dim, h, w)
         feat = feat.contiguous()
+
+        if self.adapter is not None:
+            feat = self.adapter(feat) + feat  # residual connection
+
         return (feat,)

@@ -47,14 +47,20 @@ def plot_curve(log_dicts, args):
 
     num_metrics = len(metrics)
     skip_epochs = getattr(args, 'skip_epochs', 0)
+    start_epoch = getattr(args, 'start_epoch', None)
+    end_epoch = getattr(args, 'end_epoch', None)
     for i, log_dict in enumerate(log_dicts):
         epochs = sorted(log_dict.keys())
         if skip_epochs > 0:
             epochs = epochs[skip_epochs:]
+        if start_epoch is not None:
+            epochs = [e for e in epochs if e >= start_epoch]
+        if end_epoch is not None:
+            epochs = [e for e in epochs if e <= end_epoch]
         if not epochs:
             raise ValueError(
-                f'No epochs left after skipping first {skip_epochs} epoch(s) '
-                f'for {args.json_logs[i]}')
+                f'No epochs in range (skip={skip_epochs}, start={start_epoch}, '
+                f'end={end_epoch}) for {args.json_logs[i]}')
         for j, metric in enumerate(metrics):
             print(f'plot curve of {args.json_logs[i]}, metric is {metric}')
             if metric not in log_dict[epochs[args.interval - 1]]:
@@ -150,6 +156,16 @@ def add_plot_parser(subparsers):
         type=int,
         default=1,
         help='number of initial epochs to skip when plotting (default: 1, i.e. only plot from epoch 2 onward)')
+    parser_plt.add_argument(
+        '--start-epoch',
+        type=int,
+        default=None,
+        help='only plot from this epoch (inclusive). For comparing same epoch range across runs.')
+    parser_plt.add_argument(
+        '--end-epoch',
+        type=int,
+        default=None,
+        help='only plot up to this epoch (inclusive). For comparing same epoch range across runs.')
 
 
 def add_time_parser(subparsers):
