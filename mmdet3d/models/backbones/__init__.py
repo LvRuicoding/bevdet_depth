@@ -11,10 +11,11 @@ from .pointnet2_sa_ssg import PointNet2SASSG
 from .resnet import CustomResNet, CustomResNet3D
 from .second import SECOND
 from .swin import SwinTransformer
+from .must3r_backbone import Must3rBackbone
 
 __all__ = [
     'ResNet', 'ResNetV1d', 'ResNeXt', 'ResNetRGBD', 'SSDVGG', 'HRNet', 'NoStemRegNet',
     'SECOND', 'DGCNNBackbone', 'PointNet2SASSG', 'PointNet2SAMSG',
     'MultiBackbone', 'DLANet', 'MinkResNet', 'CustomResNet', 'CustomResNet3D',
-    'SwinTransformer'
+    'SwinTransformer', 'Must3rBackbone'
 ]

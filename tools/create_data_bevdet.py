@@ -102,12 +102,12 @@ def nuscenes_data_prep(root_path, info_prefix, version, max_sweeps=10):
 
 
 def add_ann_adj_info(extra_tag):
-    nuscenes_version = 'v1.0-trainval'
-    dataroot = './data/nuscenes/'
+    nuscenes_version = 'v1.0-mini'
+    dataroot = './data/mininuscenes/'
     nuscenes = NuScenes(nuscenes_version, dataroot)
     for set in ['train', 'val']:
         dataset = pickle.load(
-            open('./data/nuscenes/%s_infos_%s.pkl' % (extra_tag, set), 'rb'))
+            open('./data/mininuscenes/%s_infos_%s.pkl' % (extra_tag, set), 'rb'))
         for id in range(len(dataset['infos'])):
             if id % 10 == 0:
                 print('%d/%d' % (id, len(dataset['infos'])))
@@ -128,17 +128,18 @@ def add_ann_adj_info(extra_tag):
 
             scene = nuscenes.get('scene', sample['scene_token'])
             dataset['infos'][id]['occ_path'] = \
-                './data/nuscenes/gts/%s/%s'%(scene['name'], info['token'])
-        with open('./data/nuscenes/%s_infos_%s.pkl' % (extra_tag, set),
+                './data/mininuscenes/gts/%s/%s'%(scene['name'], info['token'])
+        with open('./data/mininuscenes/%s_infos_%s.pkl' % (extra_tag, set),
                   'wb') as fid:
             pickle.dump(dataset, fid)
 
 
 if __name__ == '__main__':
     dataset = 'nuscenes'
-    version = 'v1.0-trainval'
+    version = 'v1.0-mini'
+    # version = 'v1.0-trainval'
     # version = 'v1.0-test'
-    root_path = './data/nuscenes'
+    root_path = './data/mininuscenes'
     extra_tag = 'bevdetv3-nuscenes'
     nuscenes_data_prep(
         root_path=root_path,

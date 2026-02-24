@@ -46,8 +46,15 @@ def plot_curve(log_dicts, args):
     metrics = args.keys
 
     num_metrics = len(metrics)
+    skip_epochs = getattr(args, 'skip_epochs', 0)
     for i, log_dict in enumerate(log_dicts):
-        epochs = list(log_dict.keys())
+        epochs = sorted(log_dict.keys())
+        if skip_epochs > 0:
+            epochs = epochs[skip_epochs:]
+        if not epochs:
+            raise ValueError(
+                f'No epochs left after skipping first {skip_epochs} epoch(s) '
+                f'for {args.json_logs[i]}')
         for j, metric in enumerate(metrics):
             print(f'plot curve of {args.json_logs[i]}, metric is {metric}')
             if metric not in log_dict[epochs[args.interval - 1]]:
@@ -138,6 +145,11 @@ def add_plot_parser(subparsers):
     parser_plt.add_argument('--out', type=str, default=None)
     parser_plt.add_argument('--mode', type=str, default='train')
     parser_plt.add_argument('--interval', type=int, default=1)
+    parser_plt.add_argument(
+        '--skip-epochs',
+        type=int,
+        default=1,
+        help='number of initial epochs to skip when plotting (default: 1, i.e. only plot from epoch 2 onward)')
 
 
 def add_time_parser(subparsers):
