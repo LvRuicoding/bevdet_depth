@@ -10,10 +10,13 @@ from .view_transformer import LSSViewTransformer, LSSViewTransformerBEVDepth, \
     LSSViewTransformerBEVStereo
 from .depth_modulation import DepthModulationNetwork
 from .view_transformer_depth_modulation import LSSViewTransformerDepthModulation
+from .must3r_decoder_neck import Must3rDecoderNeck
+from .must3r_decoder_neck_multiview import Must3rDecoderNeckMultiView
 
 __all__ = [
     'FPN', 'SECONDFPN', 'OutdoorImVoxelNeck', 'PointNetFPNeck', 'DLANeck',
     'LSSViewTransformer', 'CustomFPN', 'FPN_LSS', 'LSSFPN3D',
     'LSSViewTransformerBEVDepth', 'LSSViewTransformerBEVStereo',
-    'DepthModulationNetwork', 'LSSViewTransformerDepthModulation'
+    'DepthModulationNetwork', 'LSSViewTransformerDepthModulation',
+    'Must3rDecoderNeck', 'Must3rDecoderNeckMultiView'
 ]
