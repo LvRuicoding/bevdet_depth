@@ -7,7 +7,8 @@ from .loading import (LoadAnnotations3D, LoadAnnotations, BEVAug,
                       LoadPointsFromDict, LoadPointsFromFile,
                       LoadPointsFromMultiSweeps, NormalizePointsColor,
                       PointSegClassMapping, PointToMultiViewDepth,
-                      PrepareImageInputs, LoadOccGTFromFile)
+                      PrepareImageInputs, LoadMapDepthInputs,
+                      LoadOccGTFromFile)
 from .loaddepth import LoadPretrainedDepth
 from .test_time_aug import MultiScaleFlipAug3D
 # yapf: disable
@@ -35,6 +36,6 @@ __all__ = [
     'RandomJitterPoints', 'AffineResize', 'RandomShiftScale',
     'LoadPointsFromDict', 'MultiViewWrapper', 'RandomRotate',
     'RangeLimitedRandomCrop', 'PrepareImageInputs', 'PointToMultiViewDepth',
-    'LoadOccGTFromFile', 'ToEgo', 'VelocityAug', 'LoadAnnotations', 'BEVAug',
-    'LoadPretrainedDepth',
+    'LoadMapDepthInputs', 'LoadOccGTFromFile', 'ToEgo', 'VelocityAug',
+    'LoadAnnotations', 'BEVAug', 'LoadPretrainedDepth',
 ]

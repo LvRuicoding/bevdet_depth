@@ -293,7 +293,7 @@ class PointSegClassMapping(object):
         # build cat_id to class index mapping
         neg_cls = len(valid_cat_ids)
         self.cat_id2class = np.ones(
-            self.max_cat_id + 1, dtype=np.int) * neg_cls
+            self.max_cat_id + 1, dtype=int) * neg_cls
         for cls_idx, cat_id in enumerate(valid_cat_ids):
             self.cat_id2class[cat_id] = cls_idx
 
@@ -1152,6 +1152,122 @@ class PrepareImageInputs(object):
         post_trans = torch.stack(post_trans)
         results['canvas'] = canvas
         return (imgs, sensor2egos, ego2globals, intrins, post_rots, post_trans)
+
+    def __call__(self, results):
+        results['img_inputs'] = self.get_inputs(results)
+        return results
+
+
+@PIPELINES.register_module()
+class LoadMapDepthInputs(PrepareImageInputs):
+    """Load cached multi-view image features and camera transforms.
+
+    This pipeline keeps the ``img_inputs`` tuple contract used by BEVDet:
+    ``(imgs, sensor2egos, ego2globals, intrins, post_rots, post_trans)``.
+    Cached features are expected at ``{feat_root}/{split}/{token}.pt`` with
+    shape ``(N, C, H, W)``.
+    """
+
+    def __init__(self,
+                 data_config,
+                 feat_root,
+                 split='train',
+                 feat_ext='.pt',
+                 to_float32=True):
+        super().__init__(
+            data_config=data_config,
+            is_train=False,
+            sequential=False,
+            opencv_pp=False)
+        self.feat_root = feat_root
+        self.split = split
+        self.feat_ext = feat_ext
+        self.to_float32 = to_float32
+        self.src_h, self.src_w = self.data_config.get('src_size', (900, 1600))
+
+    def _feat_path(self, token):
+        candidates = [
+            os.path.join(self.feat_root, self.split, f'{token}{self.feat_ext}'),
+            os.path.join(self.feat_root, f'{token}{self.feat_ext}'),
+        ]
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+        raise FileNotFoundError(
+            f'Cached feature not found for token={token}. '
+            f'Tried: {candidates}')
+
+    def _build_post_transform(self):
+        # Match PrepareImageInputs test-time augmentation
+        post_rot = torch.eye(2)
+        post_tran = torch.zeros(2)
+        resize, resize_dims, crop, flip, rotate = self.sample_augmentation(
+            H=self.src_h, W=self.src_w, flip=False, scale=None)
+
+        post_rot *= resize
+        post_tran -= torch.Tensor(crop[:2])
+        if flip:
+            A = torch.Tensor([[-1, 0], [0, 1]])
+            b = torch.Tensor([crop[2] - crop[0], 0])
+            post_rot = A.matmul(post_rot)
+            post_tran = A.matmul(post_tran) + b
+        A = self.get_rot(rotate / 180 * np.pi)
+        b = torch.Tensor([crop[2] - crop[0], crop[3] - crop[1]]) / 2
+        b = A.matmul(-b) + b
+        post_rot = A.matmul(post_rot)
+        post_tran = A.matmul(post_tran) + b
+
+        post_rot_3 = torch.eye(3)
+        post_tran_3 = torch.zeros(3)
+        post_rot_3[:2, :2] = post_rot
+        post_tran_3[:2] = post_tran
+        return post_rot_3, post_tran_3
+
+    def get_inputs(self, results, flip=None, scale=None):
+        token = results['curr']['token']
+        feat_path = self._feat_path(token)
+        feats = torch.load(feat_path, map_location='cpu')
+        if not torch.is_tensor(feats):
+            raise TypeError(
+                f'Expected tensor in {feat_path}, got {type(feats)}')
+        if feats.ndim != 4:
+            raise ValueError(
+                f'Expected feature shape (N,C,H,W), got {tuple(feats.shape)} '
+                f'from {feat_path}')
+        if self.to_float32:
+            feats = feats.float()
+
+        cam_names = self.data_config['cams']
+        results['cam_names'] = cam_names
+        if feats.shape[0] != len(cam_names):
+            raise ValueError(
+                f'Feature view count mismatch for token={token}: '
+                f'got {feats.shape[0]}, expected {len(cam_names)}')
+
+        sensor2egos = []
+        ego2globals = []
+        intrins = []
+        post_rots = []
+        post_trans = []
+        post_rot_3, post_tran_3 = self._build_post_transform()
+
+        for cam_name in cam_names:
+            cam_data = results['curr']['cams'][cam_name]
+            intrin = torch.Tensor(cam_data['cam_intrinsic'])
+            sensor2ego, ego2global = \
+                self.get_sensor_transforms(results['curr'], cam_name)
+            intrins.append(intrin)
+            sensor2egos.append(sensor2ego)
+            ego2globals.append(ego2global)
+            post_rots.append(post_rot_3.clone())
+            post_trans.append(post_tran_3.clone())
+
+        sensor2egos = torch.stack(sensor2egos)
+        ego2globals = torch.stack(ego2globals)
+        intrins = torch.stack(intrins)
+        post_rots = torch.stack(post_rots)
+        post_trans = torch.stack(post_trans)
+        return (feats, sensor2egos, ego2globals, intrins, post_rots, post_trans)
 
     def __call__(self, results):
         results['img_inputs'] = self.get_inputs(results)

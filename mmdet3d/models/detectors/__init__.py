@@ -2,6 +2,9 @@
 from .base import Base3DDetector
 from .bevdet import BEVDepth4D, BEVDet, BEVDet4D, BEVDetTRT, BEVStereo4D
 from .bevdet_depth_modulation import BEVDetDepthModulation
+from .bevdet_feature_cache import BEVDetFeatureCache
+from .bevdet_must3r_temporal import BEVDetMust3rTemporal
+from .bevdet_mapanything import BEVDetMapAnything
 from .bevdet_occ import BEVStereo4DOCC
 from .centerpoint import CenterPoint
 from .dal import DAL
@@ -30,5 +33,6 @@ __all__ = [
     'FCOSMono3D', 'ImVoxelNet', 'GroupFree3DNet', 'PointRCNN', 'SMOKEMono3D',
     'MinkSingleStage3DDetector', 'SASSD', 'BEVDet', 'BEVDet4D', 'BEVDepth4D',
     'BEVDetTRT', 'BEVStereo4D', 'BEVStereo4DOCC', 'DAL',
-    'BEVDetDepthModulation'
+    'BEVDetDepthModulation', 'BEVDetFeatureCache', 'BEVDetMust3rTemporal',
+    'BEVDetMapAnything'
 ]
